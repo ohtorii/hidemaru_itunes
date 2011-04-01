@@ -1,0 +1,399 @@
+/*秀丸でiTunesを操作するマクロ
+
+【出来ること】
+    ・再生／一時停止
+    ・次の曲
+    ・前の曲
+    ・ミュート
+    ・音量の調節
+    ・シャッフル
+    ・リピート
+    ・再生中の曲の詳細
+    ・プレイリストから曲を選択して再生
+
+    再生する操作だけできます。
+    「作成・削除・変換」といった操作はありません。なので、iTunesのデータが破壊
+    されたり変更されたりといったことはありません。
+
+【インストール】
+    ・このマクロを秀丸のマクロディレクトリへコピーします。
+    ・このマクロをキーアサインしてください。
+    ・アサインしたキーを押すとiTunesを操作するメニューがポップアップします。
+
+【動作環境】
+    秀丸 ver8 以降
+    追加機能(COM関係)を使用しているためver7では動作しません。
+    iTunes ver10.1.1.4で動作を確認。
+
+【注意】
+    iTunes側でエラーメッセージがポップアップすると、その間は秀丸マクロの実行
+    が停止します。
+    ポップアップを消すと秀丸マクロの実行が再開されます。
+
+    下記条件で発生することを確認しています。
+    ミュージックを外付けHDDで管理している、かつ、そのHDDをPCに繋いでいないとき。
+
+
+@authour    ohtorii
+http://d.hatena.ne.jp/ohtorii/
+*/
+
+//音量を「上げ／下げ」するときの増分
+#g_volume_step=5;
+
+//プレイリストの最大数
+#g_max_playlist_count = 30;
+
+
+
+
+#g_itunes		= 0;
+#g_play_order	= 0;
+call Main;
+freedll;
+endmacro;
+
+
+
+Main:
+	//念のため検査
+	if(#g_volume_step < 1){
+		#g_volume_step=1;
+	}
+	if(#g_max_playlist_count < 2){
+		#g_max_playlist_count = 2;
+	}
+
+
+	call LoadDengakuDLL;
+	if(! result){
+		return false;
+	}
+
+	title "iTunesを起動中です";
+	#g_itunes = createobject("iTunes.Application");
+	title 0;
+	if(0==#g_itunes){
+		message("iTunesを準備できませんでした");
+		return false;
+	}
+
+
+	##r = dllfunc("NEWMENU", "main");
+	call CurrentTrackName;
+	##r = dllfunc("ADDMENUITEM", "", "(&C)\t現在の曲 - "+$$return, "curmusic");
+	call CurrentPlayListName;
+	##r = dllfunc("ADDMENUITEM", "", "(&L)\t現在のプレイリスト - "+$$return, "curplaylist");
+	##r = dllfunc("ADDMENUITEM","","","");
+	##r = dllfunc("ADDMENUITEM","","(&P)\t再生/一時停止");
+	##r = dllfunc("ADDMENUITEM","","(&N)\t次の曲");
+	##r = dllfunc("ADDMENUITEM","","(&V)\t前の曲");
+	##r = dllfunc("ADDMENUITEM","","(&M)\tミュート");
+	##r = dllfunc("ADDMENUITEM","","","");
+	##r = dllfunc("ADDMENUITEM","","(&I)\t音量を上げる");
+	##r = dllfunc("ADDMENUITEM","","(&D)\t音量を下げる");
+	##r = dllfunc("ADDMENUITEM","","(&O)\t音量 " + str(getpropnum(#g_itunes,"SoundVolume")) + "/100", "volume");
+	##r = dllfunc("ADDMENUITEM","","","");
+	##r = dllfunc("ADDMENUITEM", "","(&S)\tシャッフル", "shuffle");
+	##r = dllfunc("ADDMENUITEM", "","(&R)\tリピート", "repeat");
+	##r = dllfunc("ADDMENUITEM","","","");
+	##r = dllfunc("ADDMENUITEM", "","(&X)\t終了");
+
+	call MenuCurrentMusic;
+	call MenuCurrentPlayList;
+	call MenuVolume;
+	call MenuShuffle;
+	call MenuRepeat;
+
+	$$select_item = dllfuncstr("MENUEX", "main", hidemaruhandle(0), 0, 3 * fontsize);
+	if ($$select_item == "!") {
+    	return false;	//  エラー！！
+	} else if ($$select_item == "0") {
+    	return true;	//  キャンセル
+    }
+
+    if (leftstr($$select_item,8) == "curmusic"){
+		return ;
+	}
+    if (leftstr($$select_item,11) == "curplaylist"){
+		call ChangeMusic val(midstr($$select_item,12,4));
+		return ;
+	}
+	if (leftstr($$select_item,6) == "volume"){
+		call ChangeVolume val(midstr($$select_item,7,4));
+		return ;
+	}
+	if (leftstr($$select_item,7) == "shuffle"){
+		call ChangeShuffle val(midstr($$select_item,8,1));
+		return ;
+	}
+	if (leftstr($$select_item,6) == "repeat"){
+		call ChangeRepeat val(midstr($$select_item,7,1));
+		return ;
+	}
+
+    ##index = val(midstr($$select_item,5,3));
+    ##index = ##index - 4;
+
+    if(0 == ##index){
+		//再生/一時停止
+		callmethod #g_itunes,"PlayPause";
+	}else if(1 == ##index){
+		//次の曲
+		callmethod #g_itunes,"NextTrack";
+	}else if(2 == ##index){
+		//前の曲
+		callmethod #g_itunes,"PreviousTrack";
+	}else if(3 == ##index){
+		//ミュート(トグル)
+		##n = getpropnum(#g_itunes,"Mute");
+		setpropnum #g_itunes,"Mute",!##n;
+	}else if(4 == ##index){
+		//pass
+	}else if(5 == ##index){
+		//音量を上げる
+		##n = getpropnum(#g_itunes,"SoundVolume");
+		setpropnum #g_itunes,"SoundVolume",#g_volume_step+##n;
+	}else if(6 == ##index){
+		//音量を下げる
+		##n = getpropnum(#g_itunes,"SoundVolume");
+		setpropnum #g_itunes,"SoundVolume", ##n-#g_volume_step;
+	}else if(12 == ##index){
+		//iTunesを終了する
+		##n = member(#g_itunes, "Quit");
+	}
+
+	return true;
+
+CurrentTrackName:
+	##obj=member(#g_itunes,"CurrentTrack");
+	return getpropstr(##obj,"Name");
+
+MenuCurrentMusic:
+	##track=member(#g_itunes,"CurrentTrack");
+
+	##r = dllfunc("NEWMENU","curmusic");
+	##r = dllfunc("ADDMENUITEMEX","","アルバム："		+ getpropstr(##track,"Album"), "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","アーティスト："	+ getpropstr(##track,"Artist"),"",  "d");
+	##r = dllfunc("ADDMENUITEMEX","","曲名：" 		+ getpropstr(##track,"Name"), "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","時間："			+ getpropstr(##track,"Time"), "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","ジャンル："		+ getpropstr(##track,"Genre"), "", "d");
+
+	##rating = getpropnum(##track, "Rating");
+	if(0==##rating){
+		$$rating="なし";
+	}else if(##rating<=20){
+		$$rating = "★";
+	}else if(##rating<=40){
+		$$rating = "★★";
+	}else if(##rating<=60){
+		$$rating = "★★★";
+	}else if(##rating<=80){
+		$$rating = "★★★★";
+	}else {
+		$$rating = "★★★★★";
+	}
+	##r = dllfunc("ADDMENUITEMEX","","レーティング："	+ $$rating, "", "d");
+
+	##r = dllfunc("ADDMENUITEMEX","","再生された回数："+ member(##track,"PlayedCount"), "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","サンプルレート："+ member(##track,"SampleRate") + " Hz", "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","ビットレート："+ member(##track,"BitRate") + " kbps", "", "d");
+	##r = dllfunc("ADDMENUITEMEX","","ファイルパス："+ member(##track,"Location"), "", "d");
+	call FormatFileSize member(##track,"Size");
+
+	$$size = $$return;
+	##r = dllfunc("ADDMENUITEMEX","","ファイルサイズ："+  $$size, "", "d");
+	return ;
+
+CurrentPlayListName:
+	##pl 	= member(#g_itunes,"CurrentPlayList");
+	return getpropstr(##pl,"Name");
+
+MenuCurrentPlayList:
+	/*	現在再生中の曲の前後から　#g_max_playlist_count件　とりだす。
+	*/
+	##pl 	= member(#g_itunes,"CurrentPlayList");
+	##tracks= member(##pl,"Tracks");
+	##count = getpropnum(##tracks,"Count");
+	if(##count){
+		##r = dllfunc("NEWMENU","curplaylist");
+
+		##cur_tracks 		= member(#g_itunes,"CurrentTrack");
+		##cur_track_index 	= getpropnum(##cur_tracks,"Index");
+		call GetCurrentPlayOrder;
+		##cur_order = ##return;
+
+		##half = #g_max_playlist_count / 2;
+		##top  = ##cur_order - ##half;
+		##last = ##cur_order + ##half;
+		if(##count <= ##last){
+			//下方向にはみ出している
+			##top = ##count - #g_max_playlist_count;
+		}
+		if(##top < 1){
+			##top = 1;
+		}
+
+		#g_play_order = ##top;
+		##add_num = 0;
+		while((##top <= ##count) && (##add_num<=#g_max_playlist_count)){
+			##item 		= member(##tracks,"ItemByPlayOrder", ##top);
+			##item_index= getpropnum(##item, "Index");
+			if (##item_index == ##cur_track_index){
+				$$state = "c";
+			}else{
+				$$state = "";
+			}
+			##r = dllfunc("ADDMENUITEMEX","",getpropstr(##item,"Name"), "", $$state);
+			##add_num=##add_num+1;
+			##top = ##top + 1;
+		}
+	}
+	return ;
+
+GetCurrentPlayOrder:
+	##track = member(#g_itunes,"CurrentTrack");
+	##order = getpropnum(##track,"PlayOrderIndex");
+	return ##order;
+
+FormatFileSize:
+	##x = ##1;
+	##y = ##x/(1024*1024);
+	if(##y){
+		return str(##y) + "MB";
+	}
+
+	##y = ##x/1024;
+	if(##y){
+		return str(##y) + "KB";
+	}
+
+	return str(##x)+"Byte";
+
+MenuVolume:
+	$$shortcut[0]="(&0)\t100";
+	$$shortcut[1]="(&9)\t90";
+	$$shortcut[2]="(&8)\t80";
+	$$shortcut[3]="(&7)\t70";
+	$$shortcut[4]="(&6)\t60";
+	$$shortcut[5]="(&5)\t50";
+	$$shortcut[6]="(&4)\t40";
+	$$shortcut[7]="(&3)\t30";
+	$$shortcut[8]="(&2)\t20";
+	$$shortcut[9]="(&1)\t10";
+	$$shortcut[10]="(&Z)\t0";
+
+	//1の桁を削除する
+	##volume = (getpropnum(#g_itunes,"SoundVolume")/10) * 10;
+
+	##r = dllfunc("NEWMENU","volume");
+	##index = 0;
+	while(##index < 11){
+		//現在のボリュームに近いメニューにチェックをつける
+		if((10*(10 - ##index)) == ##volume){
+			$$state = "c";
+		}else{
+			$$state = "";
+		}
+		##r = dllfunc("ADDMENUITEMEX","",$$shortcut[##index], "", $$state);
+		##index = ##index + 1;
+	}
+
+	return ;
+
+MenuShuffle:
+	$$state_on  = "";
+	$$state_off = "";
+
+	##pl = member(#g_itunes,"CurrentPlayList");
+	##shuffle = getpropnum(##pl, "Shuffle");
+	if(##shuffle){
+		$$state_on  = "c";
+	}else{
+		$$state_off = "c";
+	}
+	##r = dllfunc("NEWMENU","shuffle");
+	##r = dllfunc("ADDMENUITEMEX","","(&O)オン", "", $$state_on);
+	##r = dllfunc("ADDMENUITEMEX","","(&F)オフ", "", $$state_off);
+	return ;
+
+MenuRepeat:
+	$$state_off	= "";
+	$$state_all	= "";
+	$$state_1	= "";
+	##pl = member(#g_itunes,"CurrentPlayList");
+	##repeat = getpropnum(##pl, "SongRepeat");
+
+	if(0==##repeat){
+		$$state_off	= "c";
+	}else if(1==##repeat){
+		$$state_1	= "c";
+	}else if(2==##repeat){
+		$$state_all	= "c";
+	}
+	##r = dllfunc("NEWMENU","repeat");
+	##r = dllfunc("ADDMENUITEMEX","","(&O)オフ", 	"", $$state_off);
+	##r = dllfunc("ADDMENUITEMEX","","(&A)すべて", 	"", $$state_all);
+	##r = dllfunc("ADDMENUITEMEX","","(&N)1項目", 	"", $$state_1);
+	return ;
+
+ChangeMusic:
+	##music = #g_play_order + (##1 - 1);
+	##pl 	= member(#g_itunes,"CurrentPlayList");
+	##tracks= member(##pl,"Tracks");
+	##item 	= member(##tracks,"ItemByPlayOrder", ##music);
+	##r 	= member(##item, "Play");
+	return ;
+
+ChangeVolume:
+	##volume = (11 - ##1) * 10;
+	setpropnum #g_itunes,"SoundVolume", ##volume;
+	return ;
+
+ChangeShuffle:
+	##shuffle = ##1;
+	if(1==##shuffle){
+		##shuffle=true;
+	}else{
+		##shuffle=false;
+	}
+
+	##r = dllfunc("NEWMENU","playlist");
+	##pl = member(#g_itunes,"CurrentPlayList");
+	setpropnum ##pl, "Shuffle", ##shuffle;
+	return ;
+
+ChangeRepeat:
+	##repeat = ##1;
+	if(1==##repeat){
+		##repeat=0;
+	}else if(2==##repeat){
+		##repeat=2;
+	}else if(3==##repeat){
+		##repeat=1;
+	}else{
+		return ;
+	}
+
+	##r = dllfunc("NEWMENU","playlist");
+	##pl = member(#g_itunes,"CurrentPlayList");
+	setpropnum ##pl, "SongRepeat", ##repeat;
+	return ;
+
+LoadDengakuDLL:
+	loaddll hidemarudir + "\\DengakuDLL.dll";
+	if (!result) {
+		message "DengakuDLL.dll をロードできませんでした。";
+		return false;
+	}
+	//	ＤＬＬのバージョンチェック
+	$DLLVer = dllfuncstr("GETVERSION");
+	if (val(leftstr($DLLVer, 1)) < 2) {
+		message "このマクロの実行には Ver.2.00 以降の田楽ＤＬＬが必要です。";
+		freedll;
+		return false;
+	}
+	return true;
+
+
+
